@@ -15,8 +15,19 @@ Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri https://raw.githubuse
 *   **Makes a List:** Then, it makes a list on your computer with all the game names and links.
 *   **Lets You Search:** You can type in the console to find games.
 *   **Finds Your Game:** It searches all the games super fast.
-*   **Shows the Results:** It shows you the games that match and their links.
-*   **Handles Weird Characters:** It deals with special characters so they look right. 
+*   **Shows the Results:** It shows you the games that match and their direct download links.
+*   **Handles Weird Characters:** It deals with special characters so they look right.
+
+## Supported Hosts
+
+The script extracts direct download links from the following file hosts:
+
+*   **GOFILE** - `gofile.io/d/XXXXX` (also supports Filecrypt links which redirect to Gofile)
+*   **BUZZHEAVIER** - `bzzhr.to/XXXXX`
+*   **FILEDITCH** - `fileditchfiles.me/file.php?f=/path/file.rar`
+*   **1FICHIER** - `1fichier.com/?XXXXX`
+*   **VIKINGFILE** - `vikingfile.com/f/XXXXX`
+*   **MEGADB** - `megadb.net/XXXXX` or `megadb.net/d/XXXXX`
 
 ## Technical Stuff
 
