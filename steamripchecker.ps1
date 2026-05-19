@@ -78,7 +78,7 @@ function Get-DownloadLinks {
             }
         }
         
-        $megadbPattern = '(?:https?:)?\/\/(?:www\.)?megadb\.net\/[a-zA-Z0-9]+'
+        $megadbPattern = '(?:https?:)?\/\/(?:www\.)?megadb\.net\/(?:d\/)?[a-zA-Z0-9]+'
         $megadbMatch = [regex]::Match($pageContent, $megadbPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($megadbMatch.Success) {
             $downloadLinks.MegaDB = $megadbMatch.Value
@@ -128,7 +128,7 @@ function Get-DownloadLinks {
                     $downloadLinks.Vikingfile = "https:" + $downloadLinks.Vikingfile
                 }
             }
-            elseif ($href -match 'megadb\.net\/[a-zA-Z0-9]+' -and -not $downloadLinks.MegaDB) {
+            elseif ($href -match 'megadb\.net\/(?:d\/)?[a-zA-Z0-9]+' -and -not $downloadLinks.MegaDB) {
                 $downloadLinks.MegaDB = $href
                 if ($downloadLinks.MegaDB -notmatch '^https?://') {
                     $downloadLinks.MegaDB = "https:" + $downloadLinks.MegaDB
