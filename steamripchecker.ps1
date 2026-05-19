@@ -1,11 +1,61 @@
 $gamesListUrl = "https://steamrip.com/games-list-page/"
 $baseUrl = "https://steamrip.com"
+$testGameUrl = "https://steamrip.com/doki-doki-literature-club-plus-free-download-1f/"
 
 $host.UI.RawUI.WindowTitle = "SteamRIP Download Link Checker"
 
 Write-Host "SteamRIP Direct Download Link Checker" -ForegroundColor Cyan
 Write-Host "Type a game name to search or type 'exit' to quit" -ForegroundColor Gray
 Write-Host "--------------------------------------------------" -ForegroundColor Gray
+
+function Test-SteamRIPAvailability {
+    $urls = @(
+        @{Url = "https://steamrip.com"; Name = "Main Page"},
+        @{Url = $gamesListUrl; Name = "Games List Page"},
+        @{Url = $testGameUrl; Name = "Test Game Page"}
+    )
+    
+    $allPass = $true
+    
+    foreach ($item in $urls) {
+        try {
+            Write-Host "   Checking $($item.Name)... " -NoNewline -ForegroundColor Gray
+            $request = Invoke-WebRequest -Uri $item.Url -UseBasicParsing -TimeoutSec 10 -Method Head
+            if ($request.StatusCode -eq 200) {
+                Write-Host "OK" -ForegroundColor Green
+            } else {
+                Write-Host "FAILED (HTTP $($request.StatusCode))" -ForegroundColor Red
+                $allPass = $false
+            }
+        }
+        catch {
+            if ($_.Exception.Response.StatusCode.value__ -in @(500, 502, 503, 504)) {
+                Write-Host "FAILED (HTTP $($_.Exception.Response.StatusCode.value__) - $($_.Exception.Response.StatusDescription))" -ForegroundColor Red
+            }
+            elseif ($_.Exception.Message -match "Unable to connect to the remote server") {
+                Write-Host "FAILED (Connection failed - host offline)" -ForegroundColor Red
+            }
+            else {
+                Write-Host "FAILED ($($_.Exception.Message))" -ForegroundColor Red
+            }
+            $allPass = $false
+        }
+    }
+    
+    return $allPass
+}
+
+Write-Host "`nChecking if SteamRIP is available (testing 3 endpoints)..." -ForegroundColor Cyan
+$isAvailable = Test-SteamRIPAvailability
+
+if (-not $isAvailable) {
+    Write-Host "`nSteamRIP appears to be DOWN! One or more endpoints failed." -ForegroundColor Red
+    Write-Host "This means the website is experiencing issues (server errors, maintenance, or hosting problems)." -ForegroundColor Yellow
+    Write-Host "Exiting script. Please try again later." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "`nSteamRIP is online! All endpoints responded correctly." -ForegroundColor Green
 
 function Get-DownloadLinks {
     param([string]$pageUrl)
@@ -22,7 +72,7 @@ function Get-DownloadLinks {
     try {
         Start-Sleep -Milliseconds 500
         
-        $pageContent = (Invoke-WebRequest -Uri $pageUrl -UseBasicParsing -TimeoutSec 10).Content
+        $pageContent = (Invoke-WebRequest -Uri $pageUrl -UseBasicParsing -TimeoutSec 15).Content
         
         $gofilePattern = '(?:https?:)?\/\/(?:www\.)?gofile\.(?:io|me|to)\/d\/[a-zA-Z0-9]{5,}'
         $gofileMatch = [regex]::Match($pageContent, $gofilePattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
