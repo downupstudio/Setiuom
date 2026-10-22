@@ -1,6 +1,21 @@
 $gamesListUrl = "https://steamrip.com/games-list-page/"
-$baseUrl = "https://steamrip.com"
-$testGameUrl = "https://steamrip.com/doki-doki-literature-club-plus-free-download-1f/"
+$baseUrl      = "https://steamrip.com"
+$testGameUrl  = "https://steamrip.com/doki-doki-literature-club-plus-free-download-1f/"
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = `
+        [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11
+} catch { }
+
+$userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+$browserHeaders = @{
+    "Accept"          = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    "Accept-Language" = "en-US,en;q=0.9"
+    "Cache-Control"   = "no-cache"
+    "Pragma"          = "no-cache"
+}
+
+$ProgressPreference = 'SilentlyContinue'
 
 $host.UI.RawUI.WindowTitle = "SteamRIP Download Link Checker"
 
@@ -8,40 +23,74 @@ Write-Host "SteamRIP Direct Download Link Checker" -ForegroundColor Cyan
 Write-Host "Type a game name to search or type 'exit' to quit" -ForegroundColor Gray
 Write-Host "--------------------------------------------------" -ForegroundColor Gray
 
+function Get-WebContent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [int]$TimeoutSec = 30
+    )
+
+    $errMsg     = $null
+    $statusCode = $null
+
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSec `
+            -UserAgent $userAgent -Headers $browserHeaders -ErrorAction Stop
+        return $response.Content
+    }
+    catch {
+        try {
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+        } catch { }
+        $errMsg = $_.Exception.Message
+    }
+
+    $curlAvailable = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curlAvailable -and ($statusCode -in @(403, 429, 503) -or $null -eq $statusCode)) {
+        try {
+            $curlOut = & curl.exe -s -L --max-time $TimeoutSec --tlsv1.2 --compressed `
+                -A $userAgent `
+                -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" `
+                -H "Accept-Language: en-US,en;q=0.9" `
+                $Url 2>$null
+
+            if ($LASTEXITCODE -eq 0 -and $curlOut) {
+                return ($curlOut -join "`n")
+            }
+        }
+        catch { }
+    }
+
+    throw "HTTP $statusCode - $errMsg"
+}
+
 function Test-SteamRIPAvailability {
     $urls = @(
         @{Url = "https://steamrip.com"; Name = "Main Page"},
-        @{Url = $gamesListUrl; Name = "Games List Page"},
-        @{Url = $testGameUrl; Name = "Test Game Page"}
+        @{Url = $gamesListUrl;         Name = "Games List Page"},
+        @{Url = $testGameUrl;          Name = "Test Game Page"}
     )
-    
+
     $allPass = $true
-    
+
     foreach ($item in $urls) {
         try {
             Write-Host "   Checking $($item.Name)... " -NoNewline -ForegroundColor Gray
-            $request = Invoke-WebRequest -Uri $item.Url -UseBasicParsing -TimeoutSec 10 -Method Head
-            if ($request.StatusCode -eq 200) {
+            $content = Get-WebContent -Url $item.Url -TimeoutSec 15
+            if ($content -and $content.Length -gt 500) {
                 Write-Host "OK" -ForegroundColor Green
             } else {
-                Write-Host "FAILED (HTTP $($request.StatusCode))" -ForegroundColor Red
+                Write-Host "FAILED (empty/blocked response)" -ForegroundColor Red
                 $allPass = $false
             }
         }
         catch {
-            if ($_.Exception.Response.StatusCode.value__ -in @(500, 502, 503, 504)) {
-                Write-Host "FAILED (HTTP $($_.Exception.Response.StatusCode.value__) - $($_.Exception.Response.StatusDescription))" -ForegroundColor Red
-            }
-            elseif ($_.Exception.Message -match "Unable to connect to the remote server") {
-                Write-Host "FAILED (Connection failed - host offline)" -ForegroundColor Red
-            }
-            else {
-                Write-Host "FAILED ($($_.Exception.Message))" -ForegroundColor Red
-            }
+            Write-Host "FAILED ($($_.Exception.Message))" -ForegroundColor Red
             $allPass = $false
         }
     }
-    
+
     return $allPass
 }
 
@@ -49,9 +98,9 @@ Write-Host "`nChecking if SteamRIP is available (testing 3 endpoints)..." -Foreg
 $isAvailable = Test-SteamRIPAvailability
 
 if (-not $isAvailable) {
-    Write-Host "`nSteamRIP appears to be DOWN! One or more endpoints failed." -ForegroundColor Red
-    Write-Host "This means the website is experiencing issues (server errors, maintenance, or hosting problems)." -ForegroundColor Yellow
-    Write-Host "Exiting script. Please try again later." -ForegroundColor Red
+    Write-Host "`nSteamRIP appears to be DOWN or blocking requests!" -ForegroundColor Red
+    Write-Host "If the site loads fine in your browser, the site is likely behind a bot-protection" -ForegroundColor Yellow
+    Write-Host "challenge that even curl cannot pass. Try again later or use a VPN." -ForegroundColor Yellow
     exit 1
 }
 
@@ -59,21 +108,20 @@ Write-Host "`nSteamRIP is online! All endpoints responded correctly." -Foregroun
 
 function Get-DownloadLinks {
     param([string]$pageUrl)
-    
+
     $downloadLinks = @{
-        Gofile = $null
+        Gofile      = $null
         Buzzheavier = $null
-        FileDitch = $null
-        OneFichier = $null
-        Vikingfile = $null
-        MegaDB = $null
+        FileDitch   = $null
+        OneFichier  = $null
+        Vikingfile  = $null
+        MegaDB      = $null
     }
-    
+
     try {
         Start-Sleep -Milliseconds 500
-        
-        $pageContent = (Invoke-WebRequest -Uri $pageUrl -UseBasicParsing -TimeoutSec 15).Content
-        
+        $pageContent = Get-WebContent -Url $pageUrl -TimeoutSec 20
+
         $gofilePattern = '(?:https?:)?\/\/(?:www\.)?gofile\.(?:io|me|to)\/d\/[a-zA-Z0-9]{5,}'
         $gofileMatch = [regex]::Match($pageContent, $gofilePattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($gofileMatch.Success) {
@@ -82,7 +130,7 @@ function Get-DownloadLinks {
                 $downloadLinks.Gofile = "https:" + $downloadLinks.Gofile
             }
         }
-        
+
         $filecryptPattern = '(?:https?:)?\/\/(?:www\.)?filecrypt\.cc\/Container\/[a-zA-Z0-9]+'
         $filecryptMatch = [regex]::Match($pageContent, $filecryptPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($filecryptMatch.Success -and -not $downloadLinks.Gofile) {
@@ -91,7 +139,7 @@ function Get-DownloadLinks {
                 $downloadLinks.Gofile = "https:" + $downloadLinks.Gofile
             }
         }
-        
+
         $buzzheavierPattern = '(?:https?:)?\/\/(?:www\.)?bzzhr\.to\/[a-zA-Z0-9]+'
         $buzzheavierMatch = [regex]::Match($pageContent, $buzzheavierPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($buzzheavierMatch.Success) {
@@ -100,7 +148,7 @@ function Get-DownloadLinks {
                 $downloadLinks.Buzzheavier = "https:" + $downloadLinks.Buzzheavier
             }
         }
-        
+
         $fileditchPattern = '(?:https?:)?\/\/(?:www\.)?fileditchfiles\.me\/file\.php\?f=[^\s"\''<>]+'
         $fileditchMatch = [regex]::Match($pageContent, $fileditchPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($fileditchMatch.Success) {
@@ -109,7 +157,7 @@ function Get-DownloadLinks {
                 $downloadLinks.FileDitch = "https:" + $downloadLinks.FileDitch
             }
         }
-        
+
         $onefichierPattern = '(?:https?:)?\/\/(?:www\.)?1fichier\.com\/\?[a-zA-Z0-9]+'
         $onefichierMatch = [regex]::Match($pageContent, $onefichierPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($onefichierMatch.Success) {
@@ -118,7 +166,7 @@ function Get-DownloadLinks {
                 $downloadLinks.OneFichier = "https:" + $downloadLinks.OneFichier
             }
         }
-        
+
         $vikingfilePattern = '(?:https?:)?\/\/(?:www\.)?vikingfile\.com\/f\/[a-zA-Z0-9]+'
         $vikingfileMatch = [regex]::Match($pageContent, $vikingfilePattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($vikingfileMatch.Success) {
@@ -127,7 +175,7 @@ function Get-DownloadLinks {
                 $downloadLinks.Vikingfile = "https:" + $downloadLinks.Vikingfile
             }
         }
-        
+
         $megadbPattern = '(?:https?:)?\/\/(?:www\.)?megadb\.net\/(?:d\/)?[a-zA-Z0-9]+'
         $megadbMatch = [regex]::Match($pageContent, $megadbPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
         if ($megadbMatch.Success) {
@@ -136,91 +184,75 @@ function Get-DownloadLinks {
                 $downloadLinks.MegaDB = "https:" + $downloadLinks.MegaDB
             }
         }
-        
+
         $buttonPattern = '<a[^>]+href="([^"]+)"[^>]*class="[^"]*shortc-button[^"]*"'
         $buttonMatches = [regex]::Matches($pageContent, $buttonPattern)
-        
+
         foreach ($buttonMatch in $buttonMatches) {
             $href = $buttonMatch.Groups[1].Value
             if ($href -match 'gofile\.(?:io|me|to)\/d\/[a-zA-Z0-9]{5,}' -and -not $downloadLinks.Gofile) {
                 $downloadLinks.Gofile = $href
-                if ($downloadLinks.Gofile -notmatch '^https?://') {
-                    $downloadLinks.Gofile = "https:" + $downloadLinks.Gofile
-                }
+                if ($downloadLinks.Gofile -notmatch '^https?://') { $downloadLinks.Gofile = "https:" + $downloadLinks.Gofile }
             }
             elseif ($href -match 'filecrypt' -and -not $downloadLinks.Gofile) {
                 $downloadLinks.Gofile = $href
-                if ($downloadLinks.Gofile -notmatch '^https?://') {
-                    $downloadLinks.Gofile = "https:" + $downloadLinks.Gofile
-                }
+                if ($downloadLinks.Gofile -notmatch '^https?://') { $downloadLinks.Gofile = "https:" + $downloadLinks.Gofile }
             }
             elseif ($href -match 'bzzhr\.to\/[a-zA-Z0-9]+' -and -not $downloadLinks.Buzzheavier) {
                 $downloadLinks.Buzzheavier = $href
-                if ($downloadLinks.Buzzheavier -notmatch '^https?://') {
-                    $downloadLinks.Buzzheavier = "https:" + $downloadLinks.Buzzheavier
-                }
+                if ($downloadLinks.Buzzheavier -notmatch '^https?://') { $downloadLinks.Buzzheavier = "https:" + $downloadLinks.Buzzheavier }
             }
             elseif ($href -match 'fileditchfiles\.me\/file\.php\?f=' -and -not $downloadLinks.FileDitch) {
                 $downloadLinks.FileDitch = $href
-                if ($downloadLinks.FileDitch -notmatch '^https?://') {
-                    $downloadLinks.FileDitch = "https:" + $downloadLinks.FileDitch
-                }
+                if ($downloadLinks.FileDitch -notmatch '^https?://') { $downloadLinks.FileDitch = "https:" + $downloadLinks.FileDitch }
             }
             elseif ($href -match '1fichier\.com\/\?' -and -not $downloadLinks.OneFichier) {
                 $downloadLinks.OneFichier = $href
-                if ($downloadLinks.OneFichier -notmatch '^https?://') {
-                    $downloadLinks.OneFichier = "https:" + $downloadLinks.OneFichier
-                }
+                if ($downloadLinks.OneFichier -notmatch '^https?://') { $downloadLinks.OneFichier = "https:" + $downloadLinks.OneFichier }
             }
             elseif ($href -match 'vikingfile\.com\/f\/[a-zA-Z0-9]+' -and -not $downloadLinks.Vikingfile) {
                 $downloadLinks.Vikingfile = $href
-                if ($downloadLinks.Vikingfile -notmatch '^https?://') {
-                    $downloadLinks.Vikingfile = "https:" + $downloadLinks.Vikingfile
-                }
+                if ($downloadLinks.Vikingfile -notmatch '^https?://') { $downloadLinks.Vikingfile = "https:" + $downloadLinks.Vikingfile }
             }
             elseif ($href -match 'megadb\.net\/(?:d\/)?[a-zA-Z0-9]+' -and -not $downloadLinks.MegaDB) {
                 $downloadLinks.MegaDB = $href
-                if ($downloadLinks.MegaDB -notmatch '^https?://') {
-                    $downloadLinks.MegaDB = "https:" + $downloadLinks.MegaDB
-                }
+                if ($downloadLinks.MegaDB -notmatch '^https?://') { $downloadLinks.MegaDB = "https:" + $downloadLinks.MegaDB }
             }
         }
     }
     catch {
-        $downloadLinks.Gofile = $null
+        $downloadLinks.Gofile      = $null
         $downloadLinks.Buzzheavier = $null
-        $downloadLinks.FileDitch = $null
-        $downloadLinks.OneFichier = $null
-        $downloadLinks.Vikingfile = $null
-        $downloadLinks.MegaDB = $null
+        $downloadLinks.FileDitch   = $null
+        $downloadLinks.OneFichier  = $null
+        $downloadLinks.Vikingfile  = $null
+        $downloadLinks.MegaDB      = $null
     }
-    
+
     return $downloadLinks
 }
 
 try {
     Write-Host "`nDownloading the latest SteamRIP game list..." -ForegroundColor Cyan
-    $htmlContent = (Invoke-WebRequest -Uri $gamesListUrl -UseBasicParsing -TimeoutSec 30).Content
+    $htmlContent = Get-WebContent -Url $gamesListUrl -TimeoutSec 30
 
-    $gameDictionary = @{}
-    $exactShortTitles = @()
-    $exceptions = @("wwe", "nba")
+    $gameDictionary    = @{}
+    $exactShortTitles  = @()
+    $exceptions        = @("wwe", "nba")
 
-    $pattern = '<a[^>]+href="([^"]+)"[^>]*>([^<]+Free Download[^<]*)</a>'
+    $pattern    = '<a[^>]+href="([^"]+)"[^>]*>([^<]+Free Download[^<]*)</a>'
     $allMatches = [regex]::Matches($htmlContent, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
     foreach ($match in $allMatches) {
-        $linkUrl = $match.Groups[1].Value
+        $linkUrl   = $match.Groups[1].Value
         $fullTitle = $match.Groups[2].Value
 
         $fullTitle = [System.Net.WebUtility]::HtmlDecode($fullTitle)
         $fullTitle = $fullTitle -replace '\u2013', '-'
 
         $cleanTitle = $fullTitle -replace '\s*Free Download\s*', ''
-        
         $cleanTitle = $cleanTitle -replace '\s*\([^)]+\)\s*', ''
         $cleanTitle = $cleanTitle -replace '\s*\[[^\]]+\]\s*', ''
-        
         $cleanTitle = $cleanTitle.Trim()
 
         if ($cleanTitle.Length -ge 1 -and $cleanTitle.Length -le 3) {
@@ -233,7 +265,7 @@ try {
 
         $gameDictionary[$cleanTitle.ToLower()] = @{
             OriginalTitle = $cleanTitle
-            Url = $linkUrl
+            Url           = $linkUrl
         }
     }
 
@@ -243,29 +275,22 @@ try {
         Write-Host ""
         Write-Host "Enter game name: " -ForegroundColor Gray -NoNewline
         $userInput = Read-Host
-        
+
         if ($userInput -eq "exit") {
             Write-Host "Exiting SteamRIP Game Checker. Goodbye!" -ForegroundColor Yellow
             break
         }
 
-        if ([string]::IsNullOrWhiteSpace($userInput)) {
-            continue
-        }
+        if ([string]::IsNullOrWhiteSpace($userInput)) { continue }
 
         $cleanInput = $userInput.Trim().ToLower()
 
-        if ($cleanInput -eq "nba") {
-            $cleanInput = "nba 2k"
-        }
+        if ($cleanInput -eq "nba") { $cleanInput = "nba 2k" }
 
         if ($cleanInput.Length -le 3 -and $exceptions -notcontains $userInput.ToLower()) {
             $isExactShortTitle = $false
             foreach ($shortTitle in $exactShortTitles) {
-                if ($shortTitle -eq $cleanInput) {
-                    $isExactShortTitle = $true
-                    break
-                }
+                if ($shortTitle -eq $cleanInput) { $isExactShortTitle = $true; break }
             }
 
             if (-not $isExactShortTitle) {
@@ -277,7 +302,6 @@ try {
         }
 
         $foundGames = @()
-
         foreach ($gameKey in $gameDictionary.Keys) {
             if ($gameKey.Contains($cleanInput)) {
                 $foundGames += $gameDictionary[$gameKey]
@@ -289,51 +313,30 @@ try {
 
             foreach ($game in $foundGames) {
                 Write-Host " - $($game.OriginalTitle)" -ForegroundColor Yellow
-                
+
                 $downloads = Get-DownloadLinks -pageUrl $game.Url
-                
-                $hasLinks = $false
-                
-                if ($downloads.Gofile) {
-                    Write-Host "   GOFILE: $($downloads.Gofile)" -ForegroundColor Cyan
-                    $hasLinks = $true
-                }
-                
-                if ($downloads.Buzzheavier) {
-                    Write-Host "   BUZZHEAVIER: $($downloads.Buzzheavier)" -ForegroundColor Magenta
-                    $hasLinks = $true
-                }
-                
-                if ($downloads.FileDitch) {
-                    Write-Host "   FILEDITCH: $($downloads.FileDitch)" -ForegroundColor Green
-                    $hasLinks = $true
-                }
-                
-                if ($downloads.OneFichier) {
-                    Write-Host "   1FICHIER: $($downloads.OneFichier)" -ForegroundColor Red
-                    $hasLinks = $true
-                }
-                
-                if ($downloads.Vikingfile) {
-                    Write-Host "   VIKINGFILE: $($downloads.Vikingfile)" -ForegroundColor Yellow
-                    $hasLinks = $true
-                }
-                
-                if ($downloads.MegaDB) {
-                    Write-Host "   MEGADB: $($downloads.MegaDB)" -ForegroundColor Blue
-                    $hasLinks = $true
-                }
-                
+                $hasLinks  = $false
+
+                if ($downloads.Gofile)      { Write-Host "   GOFILE: $($downloads.Gofile)"           -ForegroundColor Cyan;   $hasLinks = $true }
+                if ($downloads.Buzzheavier) { Write-Host "   BUZZHEAVIER: $($downloads.Buzzheavier)" -ForegroundColor Magenta; $hasLinks = $true }
+                if ($downloads.FileDitch)   { Write-Host "   FILEDITCH: $($downloads.FileDitch)"     -ForegroundColor Green;  $hasLinks = $true }
+                if ($downloads.OneFichier)  { Write-Host "   1FICHIER: $($downloads.OneFichier)"     -ForegroundColor Red;    $hasLinks = $true }
+                if ($downloads.Vikingfile)  { Write-Host "   VIKINGFILE: $($downloads.Vikingfile)"   -ForegroundColor Yellow; $hasLinks = $true }
+                if ($downloads.MegaDB)      { Write-Host "   MEGADB: $($downloads.MegaDB)"           -ForegroundColor Blue;   $hasLinks = $true }
+
                 if (-not $hasLinks) {
                     Write-Host "   No download links found" -ForegroundColor DarkGray
                 }
             }
             Write-Host ""
-        } else {
+        }
+        else {
             Write-Host "No matches found for: $userInput" -ForegroundColor Red
             Write-Host "Try different spelling or check the full list at: $gamesListUrl" -ForegroundColor Gray
         }
     }
-} catch {
+}
+catch {
     Write-Host "`nERROR: Failed to retrieve data. Check internet connection." -ForegroundColor Red
+    Write-Host "Details: $($_.Exception.Message)" -ForegroundColor DarkGray
 }
