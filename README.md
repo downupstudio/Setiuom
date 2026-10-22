@@ -1,5 +1,7 @@
 # Setiuom
 
+In January 2026 I wrote a script called SteamRIP Checker that checked game availability on SteamRIP. I did it to avoid the malicious ads. It eventually stopped working because of Cloudflare. In October 2026, as a better programmer, I fixed it and based Setiuom on it.
+
 ## What It Is
 
 A PowerShell game search tool. Type a game name, get links from multiple game sites in one place. Shows direct download links where available.
