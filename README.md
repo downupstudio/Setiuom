@@ -13,3 +13,19 @@ Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri https://raw.githubuse
 ```
 
 Then type any game name and press Enter. Type `exit` to quit.
+
+# Version History
+
+## alpha
+*2026-01-13*
+- First SteamRIP script
+- Search SteamRIP game list
+- Extract download links from Gofile, Buzzheavier, FileDitch, 1Fichier, Vikingfile, MegaDB
+
+## 1.0
+*2026-10-22*
+- Added AnkerGames support
+- Unified search across all supported sites
+- Merged duplicate results (one game, links from every site it appears on)
+- Title normalization so matching works across sites
+- 403 recovery via curl.exe fallback
