@@ -31,3 +31,9 @@ Then type any game name and press Enter. Type `exit` to quit.
 - Merged duplicate results (one game, links from every site it appears on)
 - Title normalization so matching works across sites
 - 403 recovery via curl.exe fallback
+
+## 1.1
+*2026-23-10*
+- 1-3 character search words now match by first word.
+- Stopword filtering so "a", "the", "of" don't cause false matches.
+- Removed the manual exceptions list, and the nba -> nba 2k hack. The first-word lookup now covers both of them.
