@@ -1,13 +1,15 @@
 # ============================================================
-# Setiuom Games Search
+# setiuom by gabriel
 # ============================================================
 
+# configuration
 $steamripListUrl = "https://steamrip.com/games-list-page/"
 $steamripBaseUrl = "https://steamrip.com"
 $steamripTestUrl = "https://steamrip.com/doki-doki-literature-club-plus-free-download-1f/"
 
 $ankerGamesBaseUrl = "https://ankergames.net"
 
+# networking setup
 try {
     [Net.ServicePointManager]::SecurityProtocol = `
         [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11
@@ -24,6 +26,7 @@ $browserHeaders = @{
 $ProgressPreference = 'SilentlyContinue'
 $host.UI.RawUI.WindowTitle = "Setiuom Games Search"
 
+# url fetching
 function Get-WebContent {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
@@ -59,12 +62,14 @@ function Get-WebContent {
     throw "HTTP $statusCode - $errMsg"
 }
 
+# title normalization
 function Get-NormalizedKey {
     param([string]$title)
     if ([string]::IsNullOrWhiteSpace($title)) { return "" }
     return ($title.ToLower() -replace '[^a-z0-9]+', '')
 }
 
+# steamrip availability check
 function Test-SteamRIPAvailability {
     $urls = @(
         @{Url = "https://steamrip.com"; Name = "Main Page"},
@@ -91,6 +96,7 @@ function Test-SteamRIPAvailability {
     return $allPass
 }
 
+# download link extraction
 function Get-DownloadLinks {
     param([string]$pageUrl)
     $dl = @{
@@ -172,6 +178,7 @@ function Get-DownloadLinks {
     return $dl
 }
 
+# steamrip loader
 function Load-SteamRIPGames {
     Write-Host "`n[SteamRIP] Checking availability..." -ForegroundColor Cyan
     if (-not (Test-SteamRIPAvailability)) {
@@ -211,6 +218,7 @@ function Load-SteamRIPGames {
     return $games
 }
 
+# ankergames loader
 function Load-AnkerGamesList {
     Write-Host "`n[AnkerGames] Fetching sitemap index..." -ForegroundColor Cyan
     try {
@@ -266,6 +274,7 @@ function Load-AnkerGamesList {
     return $games
 }
 
+# merge lists
 function Merge-GameLists {
     param($steamripGames, $ankergamesGames)
     $unified = @{}
@@ -301,10 +310,12 @@ function Merge-GameLists {
     return $unified
 }
 
+# banner
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "   SteamRIP + AnkerGames Unified Game Search" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
+# load both sources
 $steamripGames = Load-SteamRIPGames
 $ankerGames    = Load-AnkerGamesList
 
@@ -315,6 +326,7 @@ if (-not $steamripGames -and -not $ankerGames) {
 
 $unifiedGames = Merge-GameLists -steamripGames $steamripGames -ankergamesGames $ankerGames
 
+# stats
 $steamCount = if ($steamripGames) { $steamripGames.Count } else { 0 }
 $ankerCount = if ($ankerGames)    { $ankerGames.Count }    else { 0 }
 $bothCount  = @($unifiedGames.Values | Where-Object { $_.SteamRIP -and $_.AnkerGames }).Count
@@ -330,8 +342,10 @@ Write-Host "==========================================" -ForegroundColor Green
 Write-Host "Type a game name to search or 'exit' to quit." -ForegroundColor Gray
 Write-Host "--------------------------------------------------" -ForegroundColor Gray
 
+# exceptions for short search terms; only temporary solution for now
 $exceptions = @("wwe", "nba")
 
+# search loop
 while ($true) {
     Write-Host ""
     Write-Host "Enter game name: " -ForegroundColor Gray -NoNewline
@@ -344,9 +358,11 @@ while ($true) {
     if ([string]::IsNullOrWhiteSpace($userInput)) { continue }
 
     $cleanInputRaw = $userInput.Trim().ToLower()
+    # temporary solution
     if ($cleanInputRaw -eq "nba") { $cleanInputRaw = "nba 2k" }
     $cleanInput = Get-NormalizedKey $cleanInputRaw
-
+    
+    # reject short queries unless whitelisted or exact match (temporary)
     if ($cleanInput.Length -le 3 -and $exceptions -notcontains $cleanInputRaw) {
         if (-not $unifiedGames.ContainsKey($cleanInput)) {
             Write-Host "Search term '$userInput' is too short (1-3 letters)." -ForegroundColor Red
@@ -354,7 +370,8 @@ while ($true) {
             continue
         }
     }
-
+    
+    # substring search
     $found = @()
     foreach ($k in $unifiedGames.Keys) {
         if ($k.Contains($cleanInput)) { $found += $unifiedGames[$k] }
@@ -366,7 +383,8 @@ while ($true) {
         foreach ($g in $found) {
             Write-Host ""
             Write-Host " -- $($g.DisplayTitle)" -ForegroundColor Yellow
-
+            
+            # steamrip results 
             if ($g.SteamRIP) {
                 Write-Host "    [SteamRIP]   $($g.SteamRIP.Url)" -ForegroundColor Cyan
                 $dl = Get-DownloadLinks -pageUrl $g.SteamRIP.Url
@@ -379,7 +397,8 @@ while ($true) {
                 if ($dl.MegaDB)      { Write-Host "      MEGADB: $($dl.MegaDB)"           -ForegroundColor Blue;    $has = $true }
                 if (-not $has)       { Write-Host "      (no download links found)"       -ForegroundColor DarkGray }
             }
-
+            
+            # ankergames results (will add tunnel links)
             if ($g.AnkerGames) {
                 Write-Host "    [AnkerGames] $($g.AnkerGames.Url)" -ForegroundColor Magenta
             }
