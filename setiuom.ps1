@@ -312,7 +312,7 @@ function Merge-GameLists {
 
 # banner
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "   SteamRIP + AnkerGames Unified Game Search" -ForegroundColor Cyan
+Write-Host "                Setiuom Game Search               " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # load both sources
@@ -325,6 +325,21 @@ if (-not $steamripGames -and -not $ankerGames) {
 }
 
 $unifiedGames = Merge-GameLists -steamripGames $steamripGames -ankergamesGames $ankerGames
+
+# first-word index so short queries find games whose first word matches
+$stopwords = @('a', 'an', 'the', 'of', 'in', 'on', 'at', 'to', 'and', 'or', 'but', 'is', 'it', 'be')
+$firstWordLookup = @{}
+foreach ($entry in $unifiedGames.Values) {
+    $trimmed = $entry.DisplayTitle.Trim()
+    if (-not $trimmed) { continue }
+    $firstWord = ($trimmed -split '\s+')[0].ToLower() -replace '[^a-z0-9]', ''
+    if ($firstWord.Length -lt 2) { continue }
+    if ($stopwords -contains $firstWord) { continue }
+    if (-not $firstWordLookup.ContainsKey($firstWord)) {
+        $firstWordLookup[$firstWord] = @()
+    }
+    $firstWordLookup[$firstWord] += $entry
+}
 
 # stats
 $steamCount = if ($steamripGames) { $steamripGames.Count } else { 0 }
@@ -342,9 +357,6 @@ Write-Host "==========================================" -ForegroundColor Green
 Write-Host "Type a game name to search or 'exit' to quit." -ForegroundColor Gray
 Write-Host "--------------------------------------------------" -ForegroundColor Gray
 
-# exceptions for short search terms; only temporary solution for now
-$exceptions = @("wwe", "nba")
-
 # search loop
 while ($true) {
     Write-Host ""
@@ -358,33 +370,38 @@ while ($true) {
     if ([string]::IsNullOrWhiteSpace($userInput)) { continue }
 
     $cleanInputRaw = $userInput.Trim().ToLower()
-    # temporary solution
-    if ($cleanInputRaw -eq "nba") { $cleanInputRaw = "nba 2k" }
     $cleanInput = Get-NormalizedKey $cleanInputRaw
-    
-    # reject short queries unless whitelisted or exact match (temporary)
-    if ($cleanInput.Length -le 3 -and $exceptions -notcontains $cleanInputRaw) {
-        if (-not $unifiedGames.ContainsKey($cleanInput)) {
+
+    $found = @()
+
+    # short queries: exact match or first-word match, otherwise reject
+    if ($cleanInput.Length -le 3) {
+        $isExact     = $unifiedGames.ContainsKey($cleanInput)
+        $isFirstWord = $firstWordLookup.ContainsKey($cleanInput)
+
+        if (-not $isExact -and -not $isFirstWord) {
             Write-Host "Search term '$userInput' is too short (1-3 letters)." -ForegroundColor Red
-            Write-Host "It must EXACTLY match a game title, or use 4+ letters." -ForegroundColor Yellow
+            Write-Host "It must be a game's first word (NBA, FC, F1...) or EXACTLY match a title." -ForegroundColor Yellow
             continue
         }
-    }
-    
-    # substring search
-    $found = @()
-    foreach ($k in $unifiedGames.Keys) {
-        if ($k.Contains($cleanInput)) { $found += $unifiedGames[$k] }
-    }
 
-    if ($found.Count -gt 0) {
+        if ($isFirstWord) {
+            $found = @($firstWordLookup[$cleanInput])
+        } else {
+            $found = @($unifiedGames[$cleanInput])
+        }
+
+        if ($found.Count -eq 0) {
+            Write-Host "No matches found for: $userInput" -ForegroundColor Red
+            continue
+        }
+
         Write-Host "`nFound $($found.Count) match(es):" -ForegroundColor Green
 
         foreach ($g in $found) {
             Write-Host ""
             Write-Host " -- $($g.DisplayTitle)" -ForegroundColor Yellow
-            
-            # steamrip results 
+
             if ($g.SteamRIP) {
                 Write-Host "    [SteamRIP]   $($g.SteamRIP.Url)" -ForegroundColor Cyan
                 $dl = Get-DownloadLinks -pageUrl $g.SteamRIP.Url
@@ -397,8 +414,40 @@ while ($true) {
                 if ($dl.MegaDB)      { Write-Host "      MEGADB: $($dl.MegaDB)"           -ForegroundColor Blue;    $has = $true }
                 if (-not $has)       { Write-Host "      (no download links found)"       -ForegroundColor DarkGray }
             }
-            
-            # ankergames results (will add tunnel links)
+
+            if ($g.AnkerGames) {
+                Write-Host "    [AnkerGames] $($g.AnkerGames.Url)" -ForegroundColor Magenta
+            }
+        }
+        Write-Host ""
+        continue
+    }
+
+    # substring search for queries longer than 3 chars
+    foreach ($k in $unifiedGames.Keys) {
+        if ($k.Contains($cleanInput)) { $found += $unifiedGames[$k] }
+    }
+
+    if ($found.Count -gt 0) {
+        Write-Host "`nFound $($found.Count) match(es):" -ForegroundColor Green
+
+        foreach ($g in $found) {
+            Write-Host ""
+            Write-Host " -- $($g.DisplayTitle)" -ForegroundColor Yellow
+
+            if ($g.SteamRIP) {
+                Write-Host "    [SteamRIP]   $($g.SteamRIP.Url)" -ForegroundColor Cyan
+                $dl = Get-DownloadLinks -pageUrl $g.SteamRIP.Url
+                $has = $false
+                if ($dl.Gofile)      { Write-Host "      GOFILE: $($dl.Gofile)"           -ForegroundColor Cyan;    $has = $true }
+                if ($dl.Buzzheavier) { Write-Host "      BUZZHEAVIER: $($dl.Buzzheavier)" -ForegroundColor Magenta; $has = $true }
+                if ($dl.FileDitch)   { Write-Host "      FILEDITCH: $($dl.FileDitch)"     -ForegroundColor Green;   $has = $true }
+                if ($dl.OneFichier)  { Write-Host "      1FICHIER: $($dl.OneFichier)"     -ForegroundColor Red;     $has = $true }
+                if ($dl.Vikingfile)  { Write-Host "      VIKINGFILE: $($dl.Vikingfile)"   -ForegroundColor Yellow;  $has = $true }
+                if ($dl.MegaDB)      { Write-Host "      MEGADB: $($dl.MegaDB)"           -ForegroundColor Blue;    $has = $true }
+                if (-not $has)       { Write-Host "      (no download links found)"       -ForegroundColor DarkGray }
+            }
+
             if ($g.AnkerGames) {
                 Write-Host "    [AnkerGames] $($g.AnkerGames.Url)" -ForegroundColor Magenta
             }
